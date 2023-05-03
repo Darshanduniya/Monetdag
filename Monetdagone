@@ -1,0 +1,98 @@
+from datetime import datetime, timedelta
+
+from airflow import DAG
+
+from airflow.operators.python_operator import PythonOperator
+
+from airflow.operators.bash_operator import BashOperator
+
+import pymonetdb
+
+default_args = {
+
+    'owner': 'airflow',
+
+    'start_date': datetime(2023, 5, 3),
+
+    'depends_on_past': False,
+
+    'retries': 0,
+
+    'retry_delay': timedelta(minutes=2)
+
+}
+
+dag = DAG(
+
+    'check_flag_and_trigger',
+
+    default_args=default_args,
+
+    schedule_interval=timedelta(minutes=2),
+
+)
+
+def check_flag():
+
+    conn = pymonetdb.connect(
+
+        host='localhost',
+
+        port=50000,
+
+        username='user',
+
+        password='password',
+
+        database='mydb'
+
+    )
+
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT flag_status FROM my_table')
+
+    flag_status = cursor.fetchone()[0]
+
+    cursor.close()
+
+    conn.close()
+
+    return flag_status
+
+def trigger_dag():
+
+    return BashOperator(
+
+        task_id='trigger_dag',
+
+        bash_command='airflow trigger_dag my_dag',
+
+        dag=dag
+
+    ).execute(context=None)
+
+def check_and_trigger():
+
+    flag_status = check_flag()
+
+    if flag_status == 1:
+
+        trigger_dag()
+
+    else:
+
+        raise ValueError('Flag status is not 1, waiting for 2 minutes and checking again.')
+
+check_and_trigger_task = PythonOperator(
+
+    task_id='check_and_trigger',
+
+    python_callable=check_and_trigger,
+
+    dag=dag
+
+)
+
+check_and_trigger_task
+
